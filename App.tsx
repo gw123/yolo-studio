@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { 
-  Upload, Download, Plus, Trash2, ZoomIn, ZoomOut, 
+import {
+  Upload, Download, Plus, Trash2, ZoomIn, ZoomOut,
   MousePointer, Square, Move, Brain, Settings, Layout,
   Image as ImageIcon, Check, Save, Package, CornerRightDown, Command, CircleHelp
 } from 'lucide-react';
@@ -26,18 +26,17 @@ interface ToolButtonProps {
 const ToolButton: React.FC<ToolButtonProps> = ({ active, onClick, icon, title, hotkey, description, disabled }) => {
   return (
     <div className="group relative flex justify-center">
-      <button 
+      <button
         onClick={onClick}
         disabled={disabled}
-        className={`p-2 rounded flex justify-center transition-all duration-200 ${
-          active 
-            ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50 ring-1 ring-blue-400/50' 
-            : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200'
-        } ${disabled ? 'opacity-30 cursor-not-allowed' : ''}`}
+        className={`p-2 rounded flex justify-center transition-all duration-200 ${active
+          ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50 ring-1 ring-blue-400/50'
+          : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200'
+          } ${disabled ? 'opacity-30 cursor-not-allowed' : ''}`}
       >
         {icon}
       </button>
-      
+
       {/* Tooltip */}
       <div className="absolute left-full top-0 ml-3 w-48 p-3 bg-neutral-900/95 backdrop-blur border border-neutral-700 rounded-lg shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none translate-x-[-10px] group-hover:translate-x-0">
         <div className="flex justify-between items-center mb-1">
@@ -58,7 +57,7 @@ const App: React.FC = () => {
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [labels, setLabels] = useState<LabelClass[]>(DEFAULT_LABELS);
   const [currentLabelId, setCurrentLabelId] = useState<string>(DEFAULT_LABELS[0].id);
-  
+
   // State: UI
   const [toolMode, setToolMode] = useState<ToolMode>(ToolMode.SELECT);
   const [zoom, setZoom] = useState(1);
@@ -67,10 +66,13 @@ const App: React.FC = () => {
   const [selectedAnnId, setSelectedAnnId] = useState<string | null>(null);
   const [isZipping, setIsZipping] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  
+
   // State: Config
+
   const [yoloConfig, setYoloConfig] = useState<YOLOConfig>(DEFAULT_YOLO_CONFIG);
   const [isProcessingAI, setIsProcessingAI] = useState(false);
+  // Default to 2.5, but let user choose specifically if they want 1.5 or others
+  const [aiModel, setAiModel] = useState<string>('gemini-2.5-flash');
 
   const editorRef = useRef<HTMLElement>(null);
   const currentImage = images.find(img => img.id === selectedImageId);
@@ -79,7 +81,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (currentImage && editorRef.current && currentImage.width > 0 && currentImage.height > 0) {
       const { clientWidth, clientHeight } = editorRef.current;
-      
+
       // If image is larger than the editor container, default to 50% zoom
       if (currentImage.width > clientWidth || currentImage.height > clientHeight) {
         setZoom(0.5);
@@ -97,49 +99,49 @@ const App: React.FC = () => {
     try {
       const zip = new JSZip();
       const content = await zip.loadAsync(file);
-      
+
       let newLabels: LabelClass[] = [];
       let activeLabels = labels;
 
       // 1. Look for data.yaml to restore classes
       const files = Object.values(content.files);
       const yamlFile = files.find(f => f.name.endsWith('data.yaml') && !f.dir && !f.name.includes('__MACOSX'));
-      
+
       if (yamlFile) {
         const text = await yamlFile.async('string');
         const lines = text.split('\n');
         let inNames = false;
         const names: string[] = [];
-        
+
         for (const line of lines) {
-           const trimmed = line.trim();
-           if (trimmed.startsWith('names:')) {
-             inNames = true;
-             if (trimmed.includes('[')) {
-                const content = trimmed.substring(trimmed.indexOf('[') + 1, trimmed.lastIndexOf(']'));
-                const items = content.split(',').map(s => s.trim().replace(/['"]/g, ''));
-                names.push(...items);
+          const trimmed = line.trim();
+          if (trimmed.startsWith('names:')) {
+            inNames = true;
+            if (trimmed.includes('[')) {
+              const content = trimmed.substring(trimmed.indexOf('[') + 1, trimmed.lastIndexOf(']'));
+              const items = content.split(',').map(s => s.trim().replace(/['"]/g, ''));
+              names.push(...items);
+              inNames = false;
+            }
+            continue;
+          }
+
+          if (inNames) {
+            if (trimmed.startsWith('-')) {
+              names.push(trimmed.substring(1).trim());
+            } else if (trimmed.includes(':') && !trimmed.startsWith('#') && !trimmed.endsWith(':')) {
+              const parts = trimmed.split(':');
+              if (parts.length >= 2) {
+                names.push(parts[1].trim());
+              } else {
                 inNames = false;
-             }
-             continue;
-           }
-           
-           if (inNames) {
-             if (trimmed.startsWith('-')) {
-               names.push(trimmed.substring(1).trim());
-             } else if (trimmed.includes(':') && !trimmed.startsWith('#') && !trimmed.endsWith(':')) {
-                const parts = trimmed.split(':');
-                if (parts.length >= 2) {
-                    names.push(parts[1].trim());
-                } else {
-                    inNames = false;
-                }
-             } else if (trimmed === '') {
-                continue;
-             } else {
-                inNames = false;
-             }
-           }
+              }
+            } else if (trimmed === '') {
+              continue;
+            } else {
+              inNames = false;
+            }
+          }
         }
 
         if (names.length > 0) {
@@ -161,76 +163,76 @@ const App: React.FC = () => {
       // Pass 1: Index txt files
       for (const f of files) {
         if (!f.dir && f.name.endsWith('.txt') && !f.name.includes('__MACOSX') && !f.name.endsWith('classes.txt') && !f.name.endsWith('README.txt')) {
-           const text = await f.async('string');
-           const baseName = f.name.split('/').pop()?.replace(/\.txt$/, '');
-           if (baseName) labelMap.set(baseName, text);
+          const text = await f.async('string');
+          const baseName = f.name.split('/').pop()?.replace(/\.txt$/, '');
+          if (baseName) labelMap.set(baseName, text);
         }
       }
 
       // Pass 2: Process images
       for (const f of files) {
-         if (!f.dir && f.name.match(/\.(jpg|jpeg|png|webp|bmp)$/i) && !f.name.includes('__MACOSX')) {
-            const blob = await f.async('blob');
-            const name = f.name.split('/').pop() || 'restored_image.jpg';
-            const baseName = name.replace(/\.[^/.]+$/, "");
-            
-            const imgFile = new File([blob], name, { type: blob.type });
-            const url = URL.createObjectURL(blob);
+        if (!f.dir && f.name.match(/\.(jpg|jpeg|png|webp|bmp)$/i) && !f.name.includes('__MACOSX')) {
+          const blob = await f.async('blob');
+          const name = f.name.split('/').pop() || 'restored_image.jpg';
+          const baseName = name.replace(/\.[^/.]+$/, "");
 
-            const anns: BBox[] = [];
-            const labelContent = labelMap.get(baseName);
-            
-            if (labelContent) {
-               const lines = labelContent.split('\n');
-               lines.forEach(line => {
-                  const parts = line.trim().split(/\s+/);
-                  if (parts.length >= 5) {
-                     const clsIdx = parseInt(parts[0]);
-                     const x = parseFloat(parts[1]);
-                     const y = parseFloat(parts[2]);
-                     const w = parseFloat(parts[3]);
-                     const h = parseFloat(parts[4]);
-                     
-                     const label = activeLabels[clsIdx]; 
-                     if (label) {
-                        anns.push({
-                           id: crypto.randomUUID(),
-                           labelId: label.id,
-                           x, y, w, h
-                        });
-                     }
-                  }
-               });
-            }
+          const imgFile = new File([blob], name, { type: blob.type });
+          const url = URL.createObjectURL(blob);
 
-            newImages.push({
-               id: crypto.randomUUID(),
-               file: imgFile,
-               url,
-               name,
-               width: 0, // Will load async
-               height: 0,
-               annotations: anns,
-               status: anns.length > 0 ? 'done' : 'unlabeled'
+          const anns: BBox[] = [];
+          const labelContent = labelMap.get(baseName);
+
+          if (labelContent) {
+            const lines = labelContent.split('\n');
+            lines.forEach(line => {
+              const parts = line.trim().split(/\s+/);
+              if (parts.length >= 5) {
+                const clsIdx = parseInt(parts[0]);
+                const x = parseFloat(parts[1]);
+                const y = parseFloat(parts[2]);
+                const w = parseFloat(parts[3]);
+                const h = parseFloat(parts[4]);
+
+                const label = activeLabels[clsIdx];
+                if (label) {
+                  anns.push({
+                    id: crypto.randomUUID(),
+                    labelId: label.id,
+                    x, y, w, h
+                  });
+                }
+              }
             });
-         }
+          }
+
+          newImages.push({
+            id: crypto.randomUUID(),
+            file: imgFile,
+            url,
+            name,
+            width: 0, // Will load async
+            height: 0,
+            annotations: anns,
+            status: anns.length > 0 ? 'done' : 'unlabeled'
+          });
+        }
       }
 
       setImages(prev => [...prev, ...newImages]);
-      
+
       newImages.forEach(img => {
-         const i = new Image();
-         i.src = img.url;
-         i.onload = () => {
-            setImages(prev => prev.map(p => p.id === img.id ? { ...p, width: i.naturalWidth, height: i.naturalHeight } : p));
-         };
+        const i = new Image();
+        i.src = img.url;
+        i.onload = () => {
+          setImages(prev => prev.map(p => p.id === img.id ? { ...p, width: i.naturalWidth, height: i.naturalHeight } : p));
+        };
       });
 
       if (newImages.length > 0) {
-         setSelectedImageId(newImages[0].id);
-         alert(`Successfully imported ${newImages.length} images and dataset configuration.`);
+        setSelectedImageId(newImages[0].id);
+        alert(`Successfully imported ${newImages.length} images and dataset configuration.`);
       } else {
-         alert("No valid images found in ZIP.");
+        alert("No valid images found in ZIP.");
       }
 
     } catch (e) {
@@ -243,8 +245,9 @@ const App: React.FC = () => {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const files = Array.from(e.target.files);
-      
+      const filesValues = Array.from(e.target.files);
+      const files: File[] = filesValues as File[];
+
       // Check if it's a zip file
       const zipFile = files.find(f => f.name.endsWith('.zip') || f.type.includes('zip') || f.type.includes('compressed'));
       if (zipFile) {
@@ -258,12 +261,12 @@ const App: React.FC = () => {
         file,
         url: URL.createObjectURL(file),
         name: file.name,
-        width: 800, 
+        width: 800,
         height: 600,
         annotations: [],
         status: 'unlabeled'
       }));
-      
+
       newImages.forEach(img => {
         const i = new Image();
         i.src = img.url;
@@ -302,7 +305,7 @@ const App: React.FC = () => {
     if (!currentImage) return;
     setIsProcessingAI(true);
     try {
-      const newAnns = await autoLabelImage(currentImage, labels);
+      const newAnns = await autoLabelImage(currentImage, labels, { model: aiModel });
       updateAnnotations([...currentImage.annotations, ...newAnns]);
     } catch (err) {
       alert("AI Processing Failed. Check API Key or console.");
@@ -315,14 +318,14 @@ const App: React.FC = () => {
   const handleDownloadData = () => {
     // Simple download logic for single file
     if (activeTab === 'editor' && currentImage) {
-        // Download single file
-        const content = generateYoloAnnotation(currentImage.annotations, labels);
-        const blob = new Blob([content], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = currentImage.name.replace(/\.[^/.]+$/, "") + ".txt";
-        a.click();
+      // Download single file
+      const content = generateYoloAnnotation(currentImage.annotations, labels);
+      const blob = new Blob([content], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = currentImage.name.replace(/\.[^/.]+$/, "") + ".txt";
+      a.click();
     }
   };
 
@@ -367,7 +370,7 @@ const App: React.FC = () => {
       // Add Configuration Files
       root.file("data.yaml", generateDataYaml(labels));
       root.file("train.py", generateTrainingScript(yoloConfig));
-      root.file("README.txt", 
+      root.file("README.txt",
         "YOLOv11 Dataset Generated by YOLOv11 Studio\n" +
         "-------------------------------------------\n\n" +
         "Structure:\n" +
@@ -384,12 +387,12 @@ const App: React.FC = () => {
 
       // Generate Blob
       const content = await zip.generateAsync({ type: "blob" });
-      
+
       // Trigger Download
       const url = URL.createObjectURL(content);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `yolo11_dataset_${new Date().toISOString().slice(0,10)}.zip`;
+      a.download = `yolo11_dataset_${new Date().toISOString().slice(0, 10)}.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -427,13 +430,13 @@ const App: React.FC = () => {
           <h1 className="font-bold text-lg tracking-tight">YOLOv11 <span className="text-neutral-400 font-normal">Studio</span></h1>
         </div>
         <div className="flex bg-neutral-900 rounded-lg p-1 border border-neutral-800">
-          <button 
+          <button
             onClick={() => setActiveTab('editor')}
             className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${activeTab === 'editor' ? 'bg-neutral-800 text-white' : 'text-neutral-400 hover:text-white'}`}
           >
             Editor
           </button>
-          <button 
+          <button
             onClick={() => setActiveTab('train')}
             className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${activeTab === 'train' ? 'bg-neutral-800 text-white' : 'text-neutral-400 hover:text-white'}`}
           >
@@ -445,7 +448,7 @@ const App: React.FC = () => {
             Ultralytics Docs
           </a>
           <div className="w-px h-4 bg-neutral-800 hidden md:block"></div>
-          <button 
+          <button
             onClick={() => setShowHelp(true)}
             className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-full transition-colors"
             title="Help & Guide"
@@ -457,45 +460,45 @@ const App: React.FC = () => {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        
+
         {/* Left Sidebar (Tools & Labels) */}
         <aside className="w-64 border-r border-neutral-800 bg-neutral-900 flex flex-col z-10">
-          
+
           {/* Tool Palette */}
           <div className="p-4 border-b border-neutral-800 grid grid-cols-4 gap-2">
-             <ToolButton 
-               active={toolMode === ToolMode.SELECT}
-               onClick={() => setToolMode(ToolMode.SELECT)}
-               icon={<MousePointer size={18} />}
-               title="Select Mode"
-               hotkey="V"
-               description="Select, move, and resize existing annotation boxes."
-             />
-             <ToolButton 
-               active={toolMode === ToolMode.DRAW}
-               onClick={() => setToolMode(ToolMode.DRAW)}
-               icon={<Square size={18} />}
-               title="Draw Mode"
-               hotkey="R"
-               description="Click and drag on the canvas to create new bounding boxes."
-             />
-             <ToolButton 
-               active={toolMode === ToolMode.PAN}
-               onClick={() => setToolMode(ToolMode.PAN)}
-               icon={<Move size={18} />}
-               title="Pan Tool"
-               hotkey="H"
-               description="Click and drag to move around the canvas while zoomed in."
-             />
-             <ToolButton 
-               active={false}
-               onClick={handleDeleteAnnotation}
-               disabled={!selectedAnnId}
-               icon={<Trash2 size={18} />}
-               title="Delete"
-               hotkey="Del"
-               description="Remove the currently selected annotation."
-             />
+            <ToolButton
+              active={toolMode === ToolMode.SELECT}
+              onClick={() => setToolMode(ToolMode.SELECT)}
+              icon={<MousePointer size={18} />}
+              title="Select Mode"
+              hotkey="V"
+              description="Select, move, and resize existing annotation boxes."
+            />
+            <ToolButton
+              active={toolMode === ToolMode.DRAW}
+              onClick={() => setToolMode(ToolMode.DRAW)}
+              icon={<Square size={18} />}
+              title="Draw Mode"
+              hotkey="R"
+              description="Click and drag on the canvas to create new bounding boxes."
+            />
+            <ToolButton
+              active={toolMode === ToolMode.PAN}
+              onClick={() => setToolMode(ToolMode.PAN)}
+              icon={<Move size={18} />}
+              title="Pan Tool"
+              hotkey="H"
+              description="Click and drag to move around the canvas while zoomed in."
+            />
+            <ToolButton
+              active={false}
+              onClick={handleDeleteAnnotation}
+              disabled={!selectedAnnId}
+              icon={<Trash2 size={18} />}
+              title="Delete"
+              hotkey="Del"
+              description="Remove the currently selected annotation."
+            />
           </div>
 
           {/* Classes List */}
@@ -503,8 +506,8 @@ const App: React.FC = () => {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-neutral-400 uppercase tracking-wider">Classes</h3>
               <button className="p-1 hover:bg-neutral-800 rounded transition-colors" onClick={() => {
-                 const newId = labels.length.toString();
-                 setLabels([...labels, { id: newId, name: 'new_class', color: COLORS[labels.length % COLORS.length] }]);
+                const newId = labels.length.toString();
+                setLabels([...labels, { id: newId, name: 'new_class', color: COLORS[labels.length % COLORS.length] }]);
               }}>
                 <Plus size={16} />
               </button>
@@ -512,22 +515,21 @@ const App: React.FC = () => {
             <div className="space-y-2">
               {labels.map(label => {
                 // Calculate annotation count for this label across all images
-                const count = images.reduce((acc, img) => 
+                const count = images.reduce((acc, img) =>
                   acc + img.annotations.filter(a => a.labelId === label.id).length, 0
                 );
 
                 return (
-                  <div 
+                  <div
                     key={label.id}
                     onClick={() => setCurrentLabelId(label.id)}
-                    className={`flex items-center p-2 rounded-md cursor-pointer border transition-all ${
-                      currentLabelId === label.id 
-                        ? 'bg-neutral-800 border-neutral-700 shadow-sm' 
-                        : 'border-transparent hover:bg-neutral-800/50'
-                    }`}
+                    className={`flex items-center p-2 rounded-md cursor-pointer border transition-all ${currentLabelId === label.id
+                      ? 'bg-neutral-800 border-neutral-700 shadow-sm'
+                      : 'border-transparent hover:bg-neutral-800/50'
+                      }`}
                   >
                     <div className="w-3 h-3 rounded-full mr-3 shadow-sm" style={{ backgroundColor: label.color }}></div>
-                    <input 
+                    <input
                       className="bg-transparent text-sm w-full focus:outline-none text-neutral-200 placeholder-neutral-600"
                       value={label.name}
                       onChange={(e) => {
@@ -537,7 +539,7 @@ const App: React.FC = () => {
                     />
                     <div className="flex items-center gap-2 min-w-fit">
                       <span className="text-[10px] text-neutral-600 font-mono">#{label.id}</span>
-                      <span 
+                      <span
                         className="text-[10px] bg-neutral-950 text-neutral-400 px-1.5 py-0.5 rounded-full border border-neutral-800 min-w-[1.5rem] text-center"
                         title={`${count} annotations`}
                       >
@@ -552,21 +554,35 @@ const App: React.FC = () => {
 
           {/* AI Assistant */}
           <div className="p-4 border-t border-neutral-800">
-             <button 
+            <button
               disabled={!currentImage || isProcessingAI}
               onClick={handleAutoLabel}
-              className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg flex items-center justify-center gap-2 font-medium shadow-lg shadow-indigo-900/20 hover:shadow-indigo-900/40 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-             >
-                {isProcessingAI ? (
-                  <span className="animate-pulse">Thinking...</span>
-                ) : (
-                  <>
-                    <Brain size={18} />
-                    <span>AI Auto-Label</span>
-                  </>
-                )}
-             </button>
-             <p className="text-xs text-neutral-500 mt-2 text-center">Powered by Gemini 2.5 Flash</p>
+              className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg flex items-center justify-center gap-2 font-medium shadow-lg shadow-indigo-900/20 hover:shadow-indigo-900/40 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 mb-3"
+            >
+              {isProcessingAI ? (
+                <span className="animate-pulse">Thinking...</span>
+              ) : (
+                <>
+                  <Brain size={18} />
+                  <span>AI Auto-Label</span>
+                </>
+              )}
+            </button>
+
+            {/* Model Selector */}
+            <div className="flex items-center justify-between text-xs px-1">
+              <span className="text-neutral-500">Model:</span>
+              <select
+                value={aiModel}
+                onChange={(e) => setAiModel(e.target.value)}
+                className="bg-transparent text-neutral-400 border-b border-neutral-700 pb-0.5 focus:outline-none focus:border-blue-500 focus:text-neutral-300 transition-colors text-right max-w-[120px]"
+              >
+                <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+              </select>
+            </div>
           </div>
         </aside>
 
@@ -576,16 +592,16 @@ const App: React.FC = () => {
             <>
               {/* Toolbar Overlay */}
               <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-neutral-800/90 backdrop-blur border border-neutral-700 p-1.5 rounded-full flex gap-2 z-20 shadow-xl">
-                 <button className="p-2 hover:bg-white/10 rounded-full" onClick={() => setZoom(z => Math.max(0.1, z - 0.1))}><ZoomOut size={16}/></button>
-                 <span className="px-2 flex items-center text-xs font-mono min-w-[3rem] justify-center">{Math.round(zoom * 100)}%</span>
-                 <button className="p-2 hover:bg-white/10 rounded-full" onClick={() => setZoom(z => z + 0.1)}><ZoomIn size={16}/></button>
-                 <div className="w-px bg-neutral-600 mx-1 h-6 my-auto"></div>
-                 <button className="p-2 hover:bg-white/10 rounded-full" onClick={() => setPan({x:0, y:0})} title="Reset View"><Layout size={16}/></button>
+                <button className="p-2 hover:bg-white/10 rounded-full" onClick={() => setZoom(z => Math.max(0.1, z - 0.1))}><ZoomOut size={16} /></button>
+                <span className="px-2 flex items-center text-xs font-mono min-w-[3rem] justify-center">{Math.round(zoom * 100)}%</span>
+                <button className="p-2 hover:bg-white/10 rounded-full" onClick={() => setZoom(z => z + 0.1)}><ZoomIn size={16} /></button>
+                <div className="w-px bg-neutral-600 mx-1 h-6 my-auto"></div>
+                <button className="p-2 hover:bg-white/10 rounded-full" onClick={() => setPan({ x: 0, y: 0 })} title="Reset View"><Layout size={16} /></button>
               </div>
 
               {/* Canvas */}
               {currentImage ? (
-                <Canvas 
+                <Canvas
                   image={currentImage}
                   currentLabelId={currentLabelId}
                   labels={labels}
@@ -593,93 +609,93 @@ const App: React.FC = () => {
                   zoom={zoom}
                   pan={pan}
                   onUpdateAnnotations={updateAnnotations}
-                  onPanChange={(x, y) => setPan({x, y})}
+                  onPanChange={(x, y) => setPan({ x, y })}
                   onSelectAnnotation={setSelectedAnnId}
                   selectedAnnotationId={selectedAnnId}
                 />
               ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center text-neutral-500">
-                   <ImageIcon size={48} className="mb-4 opacity-20" />
-                   <p>No image selected</p>
-                   <p className="text-sm opacity-50">Upload images to begin</p>
+                  <ImageIcon size={48} className="mb-4 opacity-20" />
+                  <p>No image selected</p>
+                  <p className="text-sm opacity-50">Upload images to begin</p>
                 </div>
               )}
             </>
           ) : (
             // Training / Export Tab
             <div className="p-8 max-w-4xl mx-auto w-full overflow-y-auto">
-               <h2 className="text-2xl font-bold mb-6">Export & Train Configuration</h2>
-               
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="space-y-6">
-                     <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800">
-                        <h3 className="font-semibold mb-4 flex items-center gap-2"><Settings size={18}/> YOLOv11 Hyperparameters</h3>
-                        <div className="space-y-4">
-                           <div>
-                              <label className="block text-xs text-neutral-400 mb-1">Epochs</label>
-                              <input type="number" className="w-full bg-neutral-950 border border-neutral-800 rounded p-2 focus:border-blue-500 outline-none transition-colors" value={yoloConfig.epochs} onChange={e => setYoloConfig({...yoloConfig, epochs: +e.target.value})}/>
-                           </div>
-                           <div>
-                              <label className="block text-xs text-neutral-400 mb-1">Image Size (px)</label>
-                              <input type="number" className="w-full bg-neutral-950 border border-neutral-800 rounded p-2 focus:border-blue-500 outline-none transition-colors" value={yoloConfig.imgSize} onChange={e => setYoloConfig({...yoloConfig, imgSize: +e.target.value})}/>
-                           </div>
-                           <div>
-                              <label className="block text-xs text-neutral-400 mb-1">Batch Size</label>
-                              <input type="number" className="w-full bg-neutral-950 border border-neutral-800 rounded p-2 focus:border-blue-500 outline-none transition-colors" value={yoloConfig.batchSize} onChange={e => setYoloConfig({...yoloConfig, batchSize: +e.target.value})}/>
-                           </div>
-                        </div>
-                     </div>
-                     
-                     <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800">
-                        <h3 className="font-semibold mb-4 flex items-center gap-2"><Download size={18}/> Dataset Export</h3>
-                        <p className="text-sm text-neutral-400 mb-4">Export your dataset. The ZIP includes images (split 80/20 for train/val), labels, data.yaml, and training scripts.</p>
-                        <div className="flex gap-3 flex-col">
-                          <button 
-                            onClick={handleDownloadData} 
-                            disabled={!currentImage}
-                            className="bg-neutral-800 hover:bg-neutral-700 px-4 py-3 rounded text-sm font-medium disabled:opacity-50 flex items-center justify-between transition-colors"
-                          >
-                            <span>Download Current Image Labels (.txt)</span>
-                            <Download size={16} />
-                          </button>
-                          
-                          <button 
-                            onClick={handleDownloadFullDataset}
-                            disabled={images.length === 0 || isZipping}
-                            className="bg-blue-600 hover:bg-blue-500 px-4 py-3 rounded text-sm font-medium disabled:opacity-50 flex items-center justify-between shadow-lg shadow-blue-900/20 transition-all"
-                          >
-                            <div className="flex flex-col items-start">
-                                <span>Download Full Dataset (.zip)</span>
-                                <span className="text-[10px] opacity-70 font-normal">Includes images, labels, yaml & script</span>
-                            </div>
-                            {isZipping ? <span className="animate-spin">⏳</span> : <Package size={18} />}
-                          </button>
-                        </div>
-                     </div>
+              <h2 className="text-2xl font-bold mb-6">Export & Train Configuration</h2>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-6">
+                  <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800">
+                    <h3 className="font-semibold mb-4 flex items-center gap-2"><Settings size={18} /> YOLOv11 Hyperparameters</h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs text-neutral-400 mb-1">Epochs</label>
+                        <input type="number" className="w-full bg-neutral-950 border border-neutral-800 rounded p-2 focus:border-blue-500 outline-none transition-colors" value={yoloConfig.epochs} onChange={e => setYoloConfig({ ...yoloConfig, epochs: +e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-neutral-400 mb-1">Image Size (px)</label>
+                        <input type="number" className="w-full bg-neutral-950 border border-neutral-800 rounded p-2 focus:border-blue-500 outline-none transition-colors" value={yoloConfig.imgSize} onChange={e => setYoloConfig({ ...yoloConfig, imgSize: +e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-neutral-400 mb-1">Batch Size</label>
+                        <input type="number" className="w-full bg-neutral-950 border border-neutral-800 rounded p-2 focus:border-blue-500 outline-none transition-colors" value={yoloConfig.batchSize} onChange={e => setYoloConfig({ ...yoloConfig, batchSize: +e.target.value })} />
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="space-y-6">
-                    <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800">
-                      <h3 className="font-semibold mb-4">Generated data.yaml</h3>
-                      <pre className="bg-black/50 p-4 rounded text-xs text-green-400 font-mono overflow-x-auto border border-neutral-800">
-                        {generateDataYaml(labels)}
-                      </pre>
-                    </div>
-
-                    <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800">
-                      <h3 className="font-semibold mb-4">Python Training Script</h3>
-                      <pre className="bg-black/50 p-4 rounded text-xs text-blue-400 font-mono overflow-x-auto border border-neutral-800">
-                        {generateTrainingScript(yoloConfig)}
-                      </pre>
-                      <button 
-                        className="mt-4 w-full py-2 border border-neutral-700 rounded hover:bg-neutral-800 text-xs uppercase tracking-wider transition-colors"
-                        onClick={() => navigator.clipboard.writeText(generateTrainingScript(yoloConfig))}
+                  <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800">
+                    <h3 className="font-semibold mb-4 flex items-center gap-2"><Download size={18} /> Dataset Export</h3>
+                    <p className="text-sm text-neutral-400 mb-4">Export your dataset. The ZIP includes images (split 80/20 for train/val), labels, data.yaml, and training scripts.</p>
+                    <div className="flex gap-3 flex-col">
+                      <button
+                        onClick={handleDownloadData}
+                        disabled={!currentImage}
+                        className="bg-neutral-800 hover:bg-neutral-700 px-4 py-3 rounded text-sm font-medium disabled:opacity-50 flex items-center justify-between transition-colors"
                       >
-                        Copy to Clipboard
+                        <span>Download Current Image Labels (.txt)</span>
+                        <Download size={16} />
+                      </button>
+
+                      <button
+                        onClick={handleDownloadFullDataset}
+                        disabled={images.length === 0 || isZipping}
+                        className="bg-blue-600 hover:bg-blue-500 px-4 py-3 rounded text-sm font-medium disabled:opacity-50 flex items-center justify-between shadow-lg shadow-blue-900/20 transition-all"
+                      >
+                        <div className="flex flex-col items-start">
+                          <span>Download Full Dataset (.zip)</span>
+                          <span className="text-[10px] opacity-70 font-normal">Includes images, labels, yaml & script</span>
+                        </div>
+                        {isZipping ? <span className="animate-spin">⏳</span> : <Package size={18} />}
                       </button>
                     </div>
                   </div>
-               </div>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800">
+                    <h3 className="font-semibold mb-4">Generated data.yaml</h3>
+                    <pre className="bg-black/50 p-4 rounded text-xs text-green-400 font-mono overflow-x-auto border border-neutral-800">
+                      {generateDataYaml(labels)}
+                    </pre>
+                  </div>
+
+                  <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800">
+                    <h3 className="font-semibold mb-4">Python Training Script</h3>
+                    <pre className="bg-black/50 p-4 rounded text-xs text-blue-400 font-mono overflow-x-auto border border-neutral-800">
+                      {generateTrainingScript(yoloConfig)}
+                    </pre>
+                    <button
+                      className="mt-4 w-full py-2 border border-neutral-700 rounded hover:bg-neutral-800 text-xs uppercase tracking-wider transition-colors"
+                      onClick={() => navigator.clipboard.writeText(generateTrainingScript(yoloConfig))}
+                    >
+                      Copy to Clipboard
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </main>
@@ -703,7 +719,7 @@ const App: React.FC = () => {
             ) : (
               <div className="divide-y divide-neutral-800">
                 {images.map((img, idx) => (
-                  <div 
+                  <div
                     key={img.id}
                     onClick={() => {
                       setSelectedImageId(img.id);
@@ -716,10 +732,9 @@ const App: React.FC = () => {
                     <div className="overflow-hidden">
                       <div className="text-xs font-medium truncate text-neutral-300 mb-1" title={img.name}>{img.name}</div>
                       <div className="flex items-center gap-2">
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                          img.status === 'done' ? 'bg-green-900 text-green-400' : 
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider ${img.status === 'done' ? 'bg-green-900 text-green-400' :
                           img.status === 'in-progress' ? 'bg-yellow-900 text-yellow-400' : 'bg-neutral-800 text-neutral-500'
-                        }`}>
+                          }`}>
                           {img.status === 'in-progress' ? 'Labeling' : img.status}
                         </span>
                         <span className="text-[10px] text-neutral-500">{img.annotations.length} box</span>
@@ -733,8 +748,8 @@ const App: React.FC = () => {
 
           {/* Stats Footer */}
           <div className="p-3 border-t border-neutral-800 bg-neutral-950 text-xs text-neutral-500 flex justify-between">
-             <span>{images.length} Images</span>
-             <span>{images.reduce((acc, cur) => acc + cur.annotations.length, 0)} Annotations</span>
+            <span>{images.length} Images</span>
+            <span>{images.reduce((acc, cur) => acc + cur.annotations.length, 0)} Annotations</span>
           </div>
         </aside>
       </div>
