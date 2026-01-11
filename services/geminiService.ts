@@ -71,19 +71,24 @@ const imageToBase64 = async (url: string): Promise<{ data: string; mimeType: str
  */
 const generatePrompt = (
   labels: LabelClass[],
-  config: AutoLabelConfig
+  config: AutoLabelConfig,
+  width?: number,
+  height?: number
 ): string => {
   const labelsList = labels.map(l => l.name).join('\n');
   const includeDescription = config.includeDescription ?? false; // Keep this for potential future use or if description is added back to prompt
 
+  const widthInfo = width && width > 0 ? `Image Dimensions: ${width}x${height} pixels.\n` : '';
+
   return `You are an expert object detection AI. Analyze this image and detect ALL instances of the following object classes:
 ${labelsList}
 
-IMPORTANT:
+${widthInfo}IMPORTANT:
 1. You MUST use the EXACT class names listed above. Do not translate, paraphrase, or change the case.
 2. Return ONLY a valid JSON array.
 3. Detect all visible objects.
 4. Bounding boxes should be normalized (0-1). If you return pixel values, I will attempt to convert them, but normalized is preferred.
+5. Limit the results to a maximum of 10 detections.
 
 Return format:
 [
@@ -95,6 +100,8 @@ Return format:
 ]
 `;
 };
+
+// ... (retryAsync, validateBBox, clampBBox remain same) ...
 
 /**
  * Retry wrapper for API calls
@@ -159,14 +166,6 @@ const clampBBox = (box: number[]): number[] => {
   return [ymin, xmin, ymax, xmax];
 };
 
-/**
- * Enhanced auto-labeling with confidence scores and better error handling
- * 
- * @param image - The image to label
- * @param activeLabels - Available label classes
- * @param config - Configuration options
- * @returns Array of detected bounding boxes with confidence scores
- */
 export const autoLabelImage = async (
   image: DatasetImage,
   activeLabels: LabelClass[],
@@ -176,11 +175,14 @@ export const autoLabelImage = async (
     throw new Error("No active labels provided. Please specify at least one label class.");
   }
 
+  // Consider using image dimensions to assist the model
+  const { width, height } = image;
+
   const {
-    model = 'gemini-2.5-flash',
-    minConfidence = 0.3,
+    model = 'gemini-3-flash-preview',
+    minConfidence = 0.93,
     maxRetries = 3,
-    temperature = 0.1,
+    temperature = 0,
     includeDescription = false
   } = config;
 
@@ -190,7 +192,7 @@ export const autoLabelImage = async (
     // Convert image to base64 with MIME type detection
     const { data: base64Data, mimeType } = await imageToBase64(image.url);
 
-    const prompt = generatePrompt(activeLabels, { ...config, includeDescription });
+    const prompt = generatePrompt(activeLabels, { ...config, includeDescription }, width, height);
 
     // Make API call with retry logic and model fallback
     const response = await retryAsync(
@@ -210,11 +212,12 @@ export const autoLabelImage = async (
             }
           });
         } catch (err: any) {
-          // Fallback mechanism for 404 (Model Not Found) or 400 (Bad Request - Invalid Argument often implies model issue)
-          if ((err.message?.includes('404') || err.status === 404 || err.message?.includes('not found')) && model.includes('2.5')) {
-            console.warn(`Model ${model} not found (404). Falling back to gemini-1.5-flash.`);
+          // Fallback mechanism for 404 (Model Not Found) or 400 (Bad Request)
+          if ((err.message?.includes('404') || err.status === 404 || err.message?.includes('not found')) && (model.includes('2.5') || model.includes('preview') || model.includes('flash-8b'))) {
+            const fallbackModel = 'gemini-2.0-flash';
+            console.warn(`Model ${model} not found or error. Falling back to ${fallbackModel}.`);
             return await ai.models.generateContent({
-              model: 'gemini-1.5-flash',
+              model: fallbackModel,
               contents: {
                 parts: [
                   { inlineData: { mimeType, data: base64Data } },
@@ -339,6 +342,10 @@ export const autoLabelImage = async (
         }
       }
 
+      // Auto-correct inverted coordinates (e.g. if model swaps min/max)
+      if (box[0] > box[2]) [box[0], box[2]] = [box[2], box[0]]; // Swap y
+      if (box[1] > box[3]) [box[1], box[3]] = [box[3], box[1]]; // Swap x
+
       if (!validateBBox(box)) {
         console.warn(`Item ${index}: Invalid bounding box for ${res.label}:`, res.box_2d);
         invalidBoxes++;
@@ -398,37 +405,3 @@ export const autoLabelImage = async (
   }
 };
 
-/**
- * Batch auto-label multiple images
- * 
- * @param images - Array of images to label
- * @param activeLabels - Available label classes
- * @param config - Configuration options
- * @param onProgress - Optional progress callback
- * @returns Map of image IDs to their detected bounding boxes
- */
-export const autoLabelBatch = async (
-  images: DatasetImage[],
-  activeLabels: LabelClass[],
-  config: AutoLabelConfig = {},
-  onProgress?: (completed: number, total: number) => void
-): Promise<Map<string, BBoxWithConfidence[]>> => {
-  const results = new Map<string, BBoxWithConfidence[]>();
-  const total = images.length;
-  let completed = 0;
-
-  for (const image of images) {
-    try {
-      const annotations = await autoLabelImage(image, activeLabels, config);
-      results.set(image.id, annotations);
-    } catch (error) {
-      console.error(`Failed to auto-label image ${image.id}:`, error);
-      results.set(image.id, []); // Store empty array for failed images
-    }
-
-    completed++;
-    onProgress?.(completed, total);
-  }
-
-  return results;
-};

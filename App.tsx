@@ -71,8 +71,8 @@ const App: React.FC = () => {
 
   const [yoloConfig, setYoloConfig] = useState<YOLOConfig>(DEFAULT_YOLO_CONFIG);
   const [isProcessingAI, setIsProcessingAI] = useState(false);
-  // Default to 2.5, but let user choose specifically if they want 1.5 or others
-  const [aiModel, setAiModel] = useState<string>('gemini-2.5-flash');
+  // Default to 3, but let user choose specifically if they want 1.5 or others
+  const [aiModel, setAiModel] = useState<string>('gemini-3-flash-preview');
 
   const editorRef = useRef<HTMLElement>(null);
   const currentImage = images.find(img => img.id === selectedImageId);
@@ -577,6 +577,7 @@ const App: React.FC = () => {
                 onChange={(e) => setAiModel(e.target.value)}
                 className="bg-transparent text-neutral-400 border-b border-neutral-700 pb-0.5 focus:outline-none focus:border-blue-500 focus:text-neutral-300 transition-colors text-right max-w-[120px]"
               >
+                <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
                 <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                 <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
                 <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
