@@ -2,11 +2,12 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Upload, Download, Plus, Trash2, ZoomIn, ZoomOut,
   MousePointer, Square, Move, Brain, Settings, Layout,
-  Image as ImageIcon, Check, Save, Package, CornerRightDown, Command, CircleHelp
+  Image as ImageIcon, Check, Save, Package, CornerRightDown, Command, CircleHelp, Filter, GitMerge
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { Canvas } from './components/Canvas';
 import { HelpModal } from './components/HelpModal';
+import { MergeModal } from './components/MergeModal';
 import { DatasetImage, LabelClass, ToolMode, YOLOConfig, BBox } from './types';
 import { DEFAULT_LABELS, DEFAULT_YOLO_CONFIG, COLORS } from './constants';
 import { autoLabelImage } from './services/geminiService';
@@ -54,6 +55,7 @@ const ToolButton: React.FC<ToolButtonProps> = ({ active, onClick, icon, title, h
 const App: React.FC = () => {
   // State: Data
   const [images, setImages] = useState<DatasetImage[]>([]);
+  const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(new Set()); // Multi-select for batch ops
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [labels, setLabels] = useState<LabelClass[]>(DEFAULT_LABELS);
   const [currentLabelId, setCurrentLabelId] = useState<string>(DEFAULT_LABELS[0].id);
@@ -66,6 +68,8 @@ const App: React.FC = () => {
   const [selectedAnnId, setSelectedAnnId] = useState<string | null>(null);
   const [isZipping, setIsZipping] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [filterSelected, setFilterSelected] = useState(false);
+  const [showMergeModal, setShowMergeModal] = useState(false);
 
   // State: Config
 
@@ -76,6 +80,7 @@ const App: React.FC = () => {
 
   const editorRef = useRef<HTMLElement>(null);
   const currentImage = images.find(img => img.id === selectedImageId);
+  const visibleImages = filterSelected ? images.filter(img => selectedImageIds.has(img.id)) : images;
 
   // Effect: Auto-fit zoom for large images
   useEffect(() => {
@@ -293,6 +298,19 @@ const App: React.FC = () => {
     }));
   };
 
+  const updateImageAnnotations = (imgId: string, newAnnotations: BBox[]) => {
+    setImages(prev => prev.map(img => {
+      if (img.id === imgId) {
+        const status = newAnnotations.length > 0 ? 'in-progress' : 'unlabeled';
+        // Append new annotations to existing ones? Or replace? 
+        // In batch auto-label, we likely want to add or overwrite. 
+        // Existing logic replaces. Let's replicate that behavior for consistency.
+        return { ...img, annotations: newAnnotations, status };
+      }
+      return img;
+    }));
+  };
+
   const handleDeleteAnnotation = () => {
     if (selectedAnnId && currentImage) {
       const newAnns = currentImage.annotations.filter(a => a.id !== selectedAnnId);
@@ -301,12 +319,55 @@ const App: React.FC = () => {
     }
   };
 
+  const handleMergeLabels = (sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return;
+
+    // 1. Update Annotations in all images
+    setImages(prev => prev.map(img => {
+      if (!img.annotations.some(a => a.labelId === sourceId)) return img;
+
+      const newAnns = img.annotations.map(a =>
+        a.labelId === sourceId ? { ...a, labelId: targetId } : a
+      );
+
+      return { ...img, annotations: newAnns };
+    }));
+
+    // 2. Remove Source Label
+    setLabels(prev => prev.filter(l => l.id !== sourceId));
+
+    // 3. Reset active ID if needed
+    if (currentLabelId === sourceId) {
+      setCurrentLabelId(targetId);
+    }
+
+    setShowMergeModal(false);
+  };
+
   const handleAutoLabel = async () => {
-    if (!currentImage) return;
+    // Determine target images: either the selection set, or the current single image
+    const targets = selectedImageIds.size > 0
+      ? images.filter(img => selectedImageIds.has(img.id))
+      : currentImage ? [currentImage] : [];
+
+    if (targets.length === 0) return;
+
     setIsProcessingAI(true);
+
     try {
-      const newAnns = await autoLabelImage(currentImage, labels, { model: aiModel });
-      updateAnnotations([...currentImage.annotations, ...newAnns]);
+      for (const img of targets) {
+        try {
+          const newAnns = await autoLabelImage(img, labels, { model: aiModel });
+          // Append to existing annotations
+          updateImageAnnotations(img.id, [...img.annotations, ...newAnns]);
+        } catch (err) {
+          console.error(`Failed to label image ${img.name}:`, err);
+        }
+      }
+
+      if (targets.length > 1) {
+        alert(`Batch processing complete for ${targets.length} images.`);
+      }
     } catch (err) {
       alert("AI Processing Failed. Check API Key or console.");
       console.error(err);
@@ -422,6 +483,12 @@ const App: React.FC = () => {
     <div className="flex flex-col h-screen w-full bg-neutral-900 text-white">
       {/* Help Modal */}
       <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} />
+      <MergeModal
+        isOpen={showMergeModal}
+        onClose={() => setShowMergeModal(false)}
+        labels={labels}
+        onMerge={handleMergeLabels}
+      />
 
       {/* Header */}
       <header className="h-14 border-b border-neutral-800 flex items-center justify-between px-4 bg-neutral-950 relative z-10">
@@ -505,12 +572,22 @@ const App: React.FC = () => {
           <div className="flex-1 overflow-y-auto p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-neutral-400 uppercase tracking-wider">Classes</h3>
-              <button className="p-1 hover:bg-neutral-800 rounded transition-colors" onClick={() => {
-                const newId = labels.length.toString();
-                setLabels([...labels, { id: newId, name: 'new_class', color: COLORS[labels.length % COLORS.length] }]);
-              }}>
-                <Plus size={16} />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  className="p-1 hover:bg-neutral-800 rounded transition-colors text-neutral-400 hover:text-white"
+                  onClick={() => setShowMergeModal(true)}
+                  title="Merge Classes"
+                  disabled={labels.length < 2}
+                >
+                  <GitMerge size={16} />
+                </button>
+                <button className="p-1 hover:bg-neutral-800 rounded transition-colors" onClick={() => {
+                  const newId = labels.length.toString();
+                  setLabels([...labels, { id: newId, name: 'new_class', color: COLORS[labels.length % COLORS.length] }]);
+                }}>
+                  <Plus size={16} />
+                </button>
+              </div>
             </div>
             <div className="space-y-2">
               {labels.map(label => {
@@ -522,7 +599,14 @@ const App: React.FC = () => {
                 return (
                   <div
                     key={label.id}
-                    onClick={() => setCurrentLabelId(label.id)}
+                    onClick={() => {
+                      setCurrentLabelId(label.id);
+                      // Select all images containing this label
+                      const relevantImageIds = images
+                        .filter(img => img.annotations.some(a => a.labelId === label.id))
+                        .map(img => img.id);
+                      setSelectedImageIds(new Set(relevantImageIds));
+                    }}
                     className={`flex items-center p-2 rounded-md cursor-pointer border transition-all ${currentLabelId === label.id
                       ? 'bg-neutral-800 border-neutral-700 shadow-sm'
                       : 'border-transparent hover:bg-neutral-800/50'
@@ -555,7 +639,7 @@ const App: React.FC = () => {
           {/* AI Assistant */}
           <div className="p-4 border-t border-neutral-800">
             <button
-              disabled={!currentImage || isProcessingAI}
+              disabled={(selectedImageIds.size === 0 && !currentImage) || isProcessingAI}
               onClick={handleAutoLabel}
               className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg flex items-center justify-center gap-2 font-medium shadow-lg shadow-indigo-900/20 hover:shadow-indigo-900/40 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 mb-3"
             >
@@ -564,7 +648,11 @@ const App: React.FC = () => {
               ) : (
                 <>
                   <Brain size={18} />
-                  <span>AI Auto-Label</span>
+                  <span>
+                    {selectedImageIds.size > 0
+                      ? `Auto-Label (${selectedImageIds.size})`
+                      : 'AI Auto-Label'}
+                  </span>
                 </>
               )}
             </button>
@@ -712,14 +800,39 @@ const App: React.FC = () => {
             </label>
           </div>
 
+          <div className="px-4 py-2 border-b border-neutral-800 flex items-center justify-between gap-2 bg-neutral-900 sticky top-0 z-20">
+            <button
+              onClick={() => {
+                const allVisibleSelected = visibleImages.every(img => selectedImageIds.has(img.id));
+                const newSet = new Set(selectedImageIds);
+                visibleImages.forEach(img => {
+                  if (allVisibleSelected) newSet.delete(img.id);
+                  else newSet.add(img.id);
+                });
+                setSelectedImageIds(newSet);
+              }}
+              className="text-[10px] uppercase tracking-wider font-semibold text-neutral-500 hover:text-white transition-colors"
+            >
+              {visibleImages.length > 0 && visibleImages.every(img => selectedImageIds.has(img.id)) ? 'Deselect All' : 'Select All'}
+            </button>
+
+            <button
+              onClick={() => setFilterSelected(!filterSelected)}
+              className={`p-1.5 rounded transition-colors ${filterSelected ? 'bg-blue-600 text-white' : 'text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800'}`}
+              title="Filter Selected Only"
+            >
+              <Filter size={14} />
+            </button>
+          </div>
+
           <div className="flex-1 overflow-y-auto">
-            {images.length === 0 ? (
+            {visibleImages.length === 0 ? (
               <div className="p-4 text-center text-xs text-neutral-600 mt-10">
-                No images uploaded yet.
+                {filterSelected ? "No images selected." : "No images uploaded yet."}
               </div>
             ) : (
               <div className="divide-y divide-neutral-800">
-                {images.map((img, idx) => (
+                {visibleImages.map((img, idx) => (
                   <div
                     key={img.id}
                     onClick={() => {
@@ -727,9 +840,25 @@ const App: React.FC = () => {
                     }}
                     className={`p-3 flex items-start gap-3 cursor-pointer transition-colors ${selectedImageId === img.id ? 'bg-blue-900/20 border-l-2 border-blue-500' : 'hover:bg-neutral-800 border-l-2 border-transparent'}`}
                   >
-                    <div className="w-12 h-12 bg-neutral-800 rounded overflow-hidden shrink-0 relative">
+                    {/* Thumbnail with Selection Overlay */}
+                    <div className="w-12 h-12 bg-neutral-800 rounded overflow-hidden shrink-0 relative group">
                       <img src={img.url} className="w-full h-full object-cover opacity-80" alt="thumb" />
+                      <div
+                        className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity ${selectedImageIds.has(img.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const newSet = new Set(selectedImageIds);
+                          if (newSet.has(img.id)) newSet.delete(img.id);
+                          else newSet.add(img.id);
+                          setSelectedImageIds(newSet);
+                        }}
+                      >
+                        <div className={`w-4 h-4 rounded border ${selectedImageIds.has(img.id) ? 'bg-blue-500 border-blue-500' : 'border-white/70'} flex items-center justify-center`}>
+                          {selectedImageIds.has(img.id) && <Check size={12} className="text-white" />}
+                        </div>
+                      </div>
                     </div>
+
                     <div className="overflow-hidden">
                       <div className="text-xs font-medium truncate text-neutral-300 mb-1" title={img.name}>{img.name}</div>
                       <div className="flex items-center gap-2">
