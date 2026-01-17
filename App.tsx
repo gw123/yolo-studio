@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Upload, Download, Plus, Trash2, ZoomIn, ZoomOut,
   MousePointer, Square, Move, Brain, Settings, Layout,
-  Image as ImageIcon, Check, Save, Package, CornerRightDown, Command, CircleHelp, Filter, GitMerge
+  Image as ImageIcon, Check, Save, Package, CornerRightDown, Command, CircleHelp, Filter, GitMerge, Server, ListChecks, ArrowRightLeft, X
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { Canvas } from './components/Canvas';
@@ -77,6 +77,7 @@ const App: React.FC = () => {
   const [isProcessingAI, setIsProcessingAI] = useState(false);
   // Default to 3, but let user choose specifically if they want 1.5 or others
   const [aiModel, setAiModel] = useState<string>('gemini-3-flash-preview');
+  const [aiMethod, setAiMethod] = useState<'client-gemini' | 'server-yolo' | 'server-gemini'>('client-gemini');
 
   const editorRef = useRef<HTMLElement>(null);
   const currentImage = images.find(img => img.id === selectedImageId);
@@ -357,7 +358,11 @@ const App: React.FC = () => {
     try {
       for (const img of targets) {
         try {
-          const newAnns = await autoLabelImage(img, labels, { model: aiModel });
+          const newAnns = await autoLabelImage(img, labels, {
+            model: aiModel,
+            method: aiMethod,
+            serverUrl: 'http://localhost:5001'
+          });
           // Append to existing annotations
           updateImageAnnotations(img.id, [...img.annotations, ...newAnns]);
         } catch (err) {
@@ -396,7 +401,7 @@ const App: React.FC = () => {
 
     try {
       const zip = new JSZip();
-      const root = zip.folder("yolo_dataset");
+      const root = zip.folder("yolo_dataset-v3-v2");
       if (!root) throw new Error("Failed to create zip folder");
 
       // Structure:
@@ -657,19 +662,35 @@ const App: React.FC = () => {
               )}
             </button>
 
+            {/* Method Selector */}
+            <div className="flex items-center justify-between text-xs px-1 mb-2">
+              <span className="text-neutral-500 flex items-center gap-1"><Server size={10} /> Method:</span>
+              <select
+                value={aiMethod}
+                onChange={(e) => setAiMethod(e.target.value as any)}
+                className="bg-transparent text-neutral-400 border-b border-neutral-700 pb-0.5 focus:outline-none focus:border-blue-500 focus:text-neutral-300 transition-colors text-right max-w-[120px]"
+              >
+                <option value="client-gemini">Cloud (Gemini)</option>
+                <option value="server-gemini">Server (Gemini)</option>
+                <option value="server-yolo">Server (YOLO)</option>
+              </select>
+            </div>
+
             {/* Model Selector */}
             <div className="flex items-center justify-between text-xs px-1">
               <span className="text-neutral-500">Model:</span>
               <select
                 value={aiModel}
+                disabled={aiMethod === 'server-yolo'}
                 onChange={(e) => setAiModel(e.target.value)}
-                className="bg-transparent text-neutral-400 border-b border-neutral-700 pb-0.5 focus:outline-none focus:border-blue-500 focus:text-neutral-300 transition-colors text-right max-w-[120px]"
+                className="bg-transparent text-neutral-400 border-b border-neutral-700 pb-0.5 focus:outline-none focus:border-blue-500 focus:text-neutral-300 transition-colors text-right max-w-[120px] disabled:opacity-30"
               >
                 <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
                 <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                 <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
                 <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
                 <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                <option value="gpt-4-vision-preview">GPT-4 Vision</option>
               </select>
             </div>
           </div>
@@ -800,29 +821,57 @@ const App: React.FC = () => {
             </label>
           </div>
 
-          <div className="px-4 py-2 border-b border-neutral-800 flex items-center justify-between gap-2 bg-neutral-900 sticky top-0 z-20">
-            <button
-              onClick={() => {
-                const allVisibleSelected = visibleImages.every(img => selectedImageIds.has(img.id));
-                const newSet = new Set(selectedImageIds);
-                visibleImages.forEach(img => {
-                  if (allVisibleSelected) newSet.delete(img.id);
-                  else newSet.add(img.id);
-                });
-                setSelectedImageIds(newSet);
-              }}
-              className="text-[10px] uppercase tracking-wider font-semibold text-neutral-500 hover:text-white transition-colors"
-            >
-              {visibleImages.length > 0 && visibleImages.every(img => selectedImageIds.has(img.id)) ? 'Deselect All' : 'Select All'}
-            </button>
+          <div className="px-3 py-2 border-b border-neutral-800 flex items-center justify-between gap-2 bg-neutral-900 sticky top-0 z-20">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => {
+                  const newSet = new Set(selectedImageIds);
+                  visibleImages.forEach(img => newSet.add(img.id));
+                  setSelectedImageIds(newSet);
+                }}
+                className="p-1.5 text-neutral-500 hover:text-white hover:bg-neutral-800 rounded transition-colors"
+                title="Select All"
+              >
+                <ListChecks size={16} />
+              </button>
 
-            <button
-              onClick={() => setFilterSelected(!filterSelected)}
-              className={`p-1.5 rounded transition-colors ${filterSelected ? 'bg-blue-600 text-white' : 'text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800'}`}
-              title="Filter Selected Only"
-            >
-              <Filter size={14} />
-            </button>
+              <button
+                onClick={() => {
+                  const newSet = new Set(selectedImageIds);
+                  visibleImages.forEach(img => {
+                    if (newSet.has(img.id)) newSet.delete(img.id);
+                    else newSet.add(img.id);
+                  });
+                  setSelectedImageIds(newSet);
+                }}
+                className="p-1.5 text-neutral-500 hover:text-white hover:bg-neutral-800 rounded transition-colors"
+                title="Invert Selection"
+              >
+                <ArrowRightLeft size={16} />
+              </button>
+
+              <button
+                onClick={() => setSelectedImageIds(new Set())}
+                className="p-1.5 text-neutral-500 hover:text-white hover:bg-neutral-800 rounded transition-colors"
+                title="Deselect All (Clear)"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-neutral-500 font-mono">
+                {selectedImageIds.size}/{visibleImages.length}
+              </span>
+              <div className="w-px h-3 bg-neutral-700"></div>
+              <button
+                onClick={() => setFilterSelected(!filterSelected)}
+                className={`p-1.5 rounded transition-colors ${filterSelected ? 'bg-blue-600 text-white' : 'text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800'}`}
+                title="Filter Selected Only"
+              >
+                <Filter size={14} />
+              </button>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto">

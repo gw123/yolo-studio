@@ -9,6 +9,8 @@ export interface AutoLabelConfig {
   maxRetries?: number; // Maximum retry attempts, default: 3
   temperature?: number; // Model temperature, default: 0.1 (more deterministic)
   includeDescription?: boolean; // Include object descriptions, default: false
+  method?: 'client-gemini' | 'server-yolo' | 'server-gemini'; // Detection method
+  serverUrl?: string; // URL for server-based detection
 }
 
 // Extended BBox with confidence score
@@ -166,6 +168,19 @@ const clampBBox = (box: number[]): number[] => {
   return [ymin, xmin, ymax, xmax];
 };
 
+
+// Server detection response interface
+interface ServerDetectionResponse {
+  success: boolean;
+  elements?: Array<{
+    type: string;
+    label: string;
+    bbox: [number, number, number, number]; // [x1, y1, x2, y2]
+    confidence: number;
+  }>;
+  error?: string;
+}
+
 export const autoLabelImage = async (
   image: DatasetImage,
   activeLabels: LabelClass[],
@@ -175,16 +190,138 @@ export const autoLabelImage = async (
     throw new Error("No active labels provided. Please specify at least one label class.");
   }
 
-  // Consider using image dimensions to assist the model
   const { width, height } = image;
 
   const {
     model = 'gemini-3-flash-preview',
-    minConfidence = 0.93,
+    minConfidence = 0.3, // Lowered default as existing code had 0.93 but interface said 0.3
     maxRetries = 3,
     temperature = 0,
-    includeDescription = false
-  } = config;
+    includeDescription = false,
+    method = 'client-gemini', // Default to client-side
+    serverUrl = 'http://localhost:5001'
+  } = config as any; // Cast to any to accept new props for now
+
+  // --- SERVER-BASED DETECTION (YOLO / SERVER-GEMINI) ---
+  if (method === 'server-yolo' || method === 'server-gemini') {
+    try {
+      const { data: base64Data } = await imageToBase64(image.url);
+
+      const payload = {
+        image: base64Data,
+        method: method === 'server-yolo' ? 'yolo' : 'gemini',
+        confidence: minConfidence,
+        model: model, // Pass model name for gemini, ignored for yolo usually (unless server uses it)
+        apiKey: process.env.API_KEY // Pass API Key if available for server-gemini
+      };
+
+      const response = await fetch(`${serverUrl}/detect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status} ${response.statusText}`);
+      }
+
+      const result: ServerDetectionResponse = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error || "Unknown server error");
+      }
+
+      // Map server results to annotations
+      const newAnnotations: BBoxWithConfidence[] = [];
+
+      // We need to map detected labels (which might be class names from YOLO) to our activeLabels IDs.
+      // For YOLO, the server returns "type" or "label" which is the class name.
+      // We try to match this with activeLabels names.
+      const labelMap = new Map(activeLabels.map(l => [l.name.toLowerCase().trim(), l]));
+
+      result.elements?.forEach((el, idx) => {
+        // Filter by confidence
+        if (el.confidence < minConfidence) return;
+
+        // Find matching label
+        // YOLO detector returns class names.
+        const detectedLabel = el.label || el.type;
+        const lowerLabel = detectedLabel.toLowerCase().trim();
+
+        let labelObj = labelMap.get(lowerLabel);
+
+        // Fuzzy match if not exact
+        if (!labelObj) {
+          for (const [key, value] of labelMap.entries()) {
+            if (lowerLabel.includes(key) || key.includes(lowerLabel)) {
+              labelObj = value;
+              break;
+            }
+          }
+        }
+
+        // If still not found, and it's YOLO, maybe we should auto-add? 
+        // For now, skip if not in active list (strict mode) or add a 'unknown' handling logic?
+        // The spec usually implies we only label what's requested.
+        if (!labelObj) {
+          console.warn(`Server detected "${detectedLabel}" but it's not in active labels.`);
+          return;
+        }
+
+        const [x1, y1, x2, y2] = el.bbox;
+
+        // Server returns pixels [x1, y1, x2, y2]. We need [cx, cy, w, h] normalized?
+        // Wait, app uses [x, y, w, h] which are usually pixels or normalized?
+        // Let's check Canvas.tsx or App.tsx consumption.
+        // App.tsx uses: x, y, w, h.
+        // Looking at `handleZipUpload` in App.tsx:
+        // x, y, w, h are parsed.
+        // Looking at `Canvas.tsx`: usually YOLO format is normalized center-x, center-y, w, h.
+        // But `generateYoloAnnotation` suggests we store them in a format that can be converted.
+        // The previous `autoLabelImage` converted to [cx, cy, w, h] normalized? 
+        // Let's check previous implementation:
+        // "Convert [ymin, xmin, ymax, xmax] to YOLO format [cx, cy, w, h]"
+        // "box = [box[0]/image.height...]" -> Normalization happens if pixels.
+        // So the App expects NORMALIZED YOLO format: center_x, center_y, width, height (0-1).
+
+        // Server YOLO returns PIXELS [x1, y1, x2, y2].
+        // We must normalize.
+        if (image.width === 0 || image.height === 0) {
+          console.warn("Image dimensions unknown, cannot normalize server results.");
+          return;
+        }
+
+        // Normalize
+        const nx1 = x1 / image.width;
+        const ny1 = y1 / image.height;
+        const nx2 = x2 / image.width;
+        const ny2 = y2 / image.height;
+
+        const w = nx2 - nx1;
+        const h = ny2 - ny1;
+        const cx = nx1 + w / 2;
+        const cy = ny1 + h / 2;
+
+        newAnnotations.push({
+          id: crypto.randomUUID(),
+          labelId: labelObj.id,
+          x: cx,
+          y: cy,
+          w: w,
+          h: h,
+          confidence: el.confidence
+        });
+      });
+
+      return newAnnotations;
+
+    } catch (e: any) {
+      console.error("Server auto-label failed:", e);
+      throw e;
+    }
+  }
+
+  // --- CLIENT-SIDE GEMINI (FALLBACK/DEFAULT) ---
 
   try {
     const ai = getGeminiClient();
